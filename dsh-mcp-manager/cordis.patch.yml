@@ -1,0 +1,9 @@
+# MCP Manager —— 插进 profile 的一行 Loader 配置。
+# 工具、HTTP 路由、存储都由插件按这里的 config 自己处理。
+- insert:
+    - id: mcp-manager
+      name: '@local/mcp-manager'
+      config:
+        entryPrefix: mcp
+        storageFile: mcp_manager.json
+        routePrefix: /api/mcp-manager

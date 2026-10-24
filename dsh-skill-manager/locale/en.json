@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skill Manager",
+    "description": "Inspect built-in skills, see how much prompt budget their descriptions use, and author your own skills under <DSH_HOME>/skills."
+  }
+}

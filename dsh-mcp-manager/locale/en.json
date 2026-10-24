@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP Manager",
+    "description": "Manage the MCP servers you entered yourself: add, edit, enable, disable and remove them, with no built-in catalog or remote registry."
+  }
+}

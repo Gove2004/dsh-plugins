@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP Manager",
+    "description": "集中管理你自己填写的 MCP 服务器：新增、编辑、启停、删除，没有内置目录，也不连远程 registry。"
+  }
+}

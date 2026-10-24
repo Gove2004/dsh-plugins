@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skill Manager",
+    "description": "看清内置技能、估算它们的描述占了多少 prompt 预算，并在 <DSH_HOME>/skills 下创建和编辑你自己的技能。"
+  }
+}

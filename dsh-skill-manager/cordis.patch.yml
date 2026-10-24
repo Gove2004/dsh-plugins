@@ -1,0 +1,5 @@
+- insert:
+    - id: skill-manager
+      name: '@local/skill-manager'
+      config:
+        routePrefix: /api/skill-manager
