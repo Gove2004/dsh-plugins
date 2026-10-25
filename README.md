@@ -5,7 +5,7 @@ DeepSeek Harness（DSH）的本地插件集合：两个手写的**面板 + 对�
 | 包名 | 目录 | 版本 | 作用 |
 |---|---|---|---|
 | `@local/mcp-manager` | [`dsh-mcp-manager/`](dsh-mcp-manager/README.md) | 2.2.0 | 管理你手写的 MCP 服务器清单，投射成 loader 条目；左侧栏管理页 + `mcp_list` / `mcp_add` / `mcp_remove` / `mcp_toggle` |
-| `@local/skill-manager` | [`dsh-skill-manager/`](dsh-skill-manager/README.md) | 1.0.0 | 技能工作台：启停、只读查看 `SKILL.md`、打开目录、删除；左侧栏面板 + `skill_manager_*` 四个工具 |
+| `@local/skill-manager` | [`dsh-skill-manager/`](dsh-skill-manager/README.md) | 1.1.0 | 技能工作台：启停、只读查看 `SKILL.md`、打开目录、删除、**拖文件夹进来即导入**；左侧栏面板 + `skill_manager_*` 四个工具 |
 
 两个插件互不依赖，可以单独安装。细节（界面结构、配置项、HTTP 路由、存储格式、已知边界）都在各自的 README 里，本文件只讲**这个仓库整体**怎么装、怎么改。
 
@@ -23,6 +23,7 @@ dsh-plugins/
 │   ├── locale/{en,zh}.json   # 双语字典
 │   └── README.md
 └── dsh-skill-manager/        # 同上结构
+    └── test/import.test.mjs  # 拖拽导入的回归测试（node test/import.test.mjs）
 ```
 
 约定：**每个子目录是一个独立 npm 包**，`@local/*` 是本地包的 scope，`private: true`，不发布到 registry。仓库根目录刻意不放 `package.json`／`pnpm-workspace.yaml`——DSH 是按**单个包目录**做 `link:` 的，根目录再多一层 workspace 只会让 `@deepseek-ai/*` 这类宿主 peer 的解析路径变得不可预期。

@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
       del: '删除',
       mine: '我的技能',
       builtin: '内置技能',
-      hintMerged: '我的技能可启停 / 查看 / 删除 · 内置技能随构建提供，只读（在 app.asar 内）',
+      hintMerged: '我的技能可启停 / 查看 / 删除 · 内置技能随构建提供，只读（在 app.asar 内）· 拖技能目录进来即导入',
       folder: '浏览',
       folderTitle: '打开技能根目录',
       delQ: '删除技能 {name}？它的目录会被整个移除。',
@@ -45,7 +45,16 @@ window.__ModuleLoader__.load({
       viewHint: '查看 SKILL.md',
       enabled: '模型可见（点掉即关闭）',
       enabledBuiltin: '内置技能固定启用',
-      httpFail: '服务端返回了非 JSON 内容（HTTP {status}）',    };
+      httpFail: '服务端返回了非 JSON 内容（HTTP {status}）',
+      dropTitle: '松手即导入技能',
+      dropHint: '目录里必须有 SKILL.md（frontmatter 要带 name 和 description）；单个 .md 文件按平铺技能导入',
+      dropNoEntry: '这个拖拽源读不出文件，试试直接拖文件夹',
+      dropNeedDir: '一次只能导入一个技能目录',
+      dropNeedMd: '只支持技能目录或单个 .md 文件',
+      dropTooMany: '文件太多（上限 {n} 个）',
+      dropTooBig: '文件太大（上限 {n} MB）：{path}',
+      importing: '正在导入 {name}…',
+    };
 
     const EN = {
       panel: 'Skill Manager',
@@ -59,7 +68,7 @@ window.__ModuleLoader__.load({
       del: 'Delete',
       mine: 'Mine',
       builtin: 'Built-in',
-      hintMerged: 'Mine can be toggled / viewed / deleted · built-ins ship with the build and stay read-only (inside app.asar)',
+      hintMerged: 'Mine can be toggled / viewed / deleted · built-ins ship with the build and stay read-only (inside app.asar) · drop a skill folder here to import',
       folder: 'Browse',
       folderTitle: 'Open skill root folder',
       delQ: 'Delete skill {name}? Its directory is removed entirely.',
@@ -69,6 +78,14 @@ window.__ModuleLoader__.load({
       enabled: 'Model-visible (uncheck to disable)',
       enabledBuiltin: 'Built-in skills are always enabled',
       httpFail: 'Server returned non-JSON (HTTP {status})',
+      dropTitle: 'Drop to import a skill',
+      dropHint: 'The folder must contain SKILL.md with name and description in its frontmatter; a single .md file imports as a flat skill',
+      dropNoEntry: 'This drag source exposes no files — try dropping the folder itself',
+      dropNeedDir: 'Drop one skill folder at a time',
+      dropNeedMd: 'Only a skill folder or a single .md file is supported',
+      dropTooMany: 'Too many files (limit {n})',
+      dropTooBig: 'File too large (limit {n} MB): {path}',
+      importing: 'Importing {name}…',
     };
 
     function fill(template, vars) {
@@ -89,6 +106,61 @@ window.__ModuleLoader__.load({
       }
       if (!response.ok || data.ok === false) throw new Error(data.message || `HTTP ${response.status}`);
       return data;
+    }
+
+    /* ── 拖拽导入：把目录树读成 base64，交给 /import ── */
+
+    const MAX_IMPORT_FILES = 400;
+    const MAX_IMPORT_FILE = 4 * 1024 * 1024;
+
+    function hasFiles(event) {
+      const types = event?.dataTransfer?.types;
+      if (!types) return false;
+      for (let i = 0; i < types.length; i += 1) if (types[i] === 'Files') return true;
+      return false;
+    }
+
+    function fileOf(entry) {
+      return new Promise((resolve, reject) => entry.file(resolve, reject));
+    }
+
+    function readAllEntries(reader) {
+      return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    }
+
+    /** FileReader 读成 base64：二进制文件（图片、脚本）也走同一条路 */
+    function readAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result ?? '');
+          const comma = text.indexOf(',');
+          resolve(comma >= 0 ? text.slice(comma + 1) : '');
+        };
+        reader.onerror = () => reject(new Error(`读取失败：${file.name}`));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function walkEntry(entry, prefix, out, t) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isFile) {
+        if (out.length >= MAX_IMPORT_FILES) throw new Error(fill(t('dropTooMany'), { n: MAX_IMPORT_FILES }));
+        const file = await fileOf(entry);
+        if (file.size > MAX_IMPORT_FILE) {
+          throw new Error(fill(t('dropTooBig'), { n: MAX_IMPORT_FILE / 1024 / 1024, path: rel }));
+        }
+        out.push({ path: rel, data: await readAsBase64(file) });
+        return;
+      }
+      if (!entry.isDirectory) return;
+      /* 空目录不会出现在 readEntries 里，所以目标目录也不会有空目录——浏览器 API 的硬边界 */
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await readAllEntries(reader);
+        if (!batch.length) break;
+        for (const child of batch) await walkEntry(child, rel, out, t);
+      }
     }
 
     /* ── 小图标 ── */
@@ -131,6 +203,9 @@ window.__ModuleLoader__.load({
       const [err, setErr] = React.useState('');
       const [viewer, setViewer] = React.useState(null);
       const [confirming, setConfirming] = React.useState(null);
+      const [dragging, setDragging] = React.useState(false);
+      const [importing, setImporting] = React.useState('');
+      const dragDepth = React.useRef(0);
 
       const load = React.useCallback(async () => {
         setLoading(true);
@@ -235,6 +310,89 @@ window.__ModuleLoader__.load({
         }
       }
 
+      async function importDrop(dataTransfer) {
+        setMsg('');
+        setErr('');
+        const entries = [];
+        for (const item of Array.from(dataTransfer?.items ?? [])) {
+          if (item.kind !== 'file' || typeof item.webkitGetAsEntry !== 'function') continue;
+          const entry = item.webkitGetAsEntry();
+          if (entry) entries.push(entry);
+        }
+        if (!entries.length) {
+          setErr(t('dropNoEntry'));
+          return;
+        }
+        const dirs = entries.filter((entry) => entry.isDirectory);
+        const files = entries.filter((entry) => entry.isFile);
+        try {
+          if (dirs.length > 1) throw new Error(t('dropNeedDir'));
+          if (dirs.length === 1) {
+            const dir = dirs[0];
+            setImporting(dir.name);
+            const collected = [];
+            const reader = dir.createReader();
+            for (;;) {
+              const batch = await readAllEntries(reader);
+              if (!batch.length) break;
+              for (const child of batch) await walkEntry(child, '', collected, t);
+            }
+            if (!collected.length) throw new Error(t('dropNeedDir'));
+            const result = await callApi('import', { name: dir.name, kind: 'dir', files: collected });
+            setMsg(result.message);
+          } else {
+            const md = files.find((entry) => /\.md$/i.test(entry.name));
+            if (!md) throw new Error(t('dropNeedMd'));
+            setImporting(md.name);
+            const file = await fileOf(md);
+            if (file.size > MAX_IMPORT_FILE) {
+              throw new Error(fill(t('dropTooBig'), { n: MAX_IMPORT_FILE / 1024 / 1024, path: md.name }));
+            }
+            const result = await callApi('import', {
+              name: md.name.replace(/\.md$/i, ''),
+              kind: 'flat',
+              files: [{ path: md.name, data: await readAsBase64(file) }],
+            });
+            setMsg(result.message);
+          }
+          await load();
+        } catch (error) {
+          setErr(error.message);
+        } finally {
+          setImporting('');
+        }
+      }
+
+      function onDragEnter(event) {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }
+
+      function onDragOver(event) {
+        if (!hasFiles(event)) return;
+        /* 不 preventDefault 的话 Electron 会把这个文件当成导航目标，整页跳走 */
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      }
+
+      function onDragLeave(event) {
+        if (!hasFiles(event)) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDragging(false);
+      }
+
+      function onDrop(event) {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (importing) return;
+        importDrop(event.dataTransfer);
+      }
+
       function row(item) {
         const editable = item.editable;
         const working = busy === item.name;
@@ -280,7 +438,13 @@ window.__ModuleLoader__.load({
           h('div', { className: 'skm-list' }, items.map(row)));
       }
 
-      return h('div', { className: 'skm' },
+      return h('div', {
+        className: 'skm',
+        onDragEnter,
+        onDragOver,
+        onDragLeave,
+        onDrop,
+      },
         h('div', { className: 'skm-in' },
           h('div', { className: 'skm-head' },
             h('h1', { className: 'skm-h' }, t('title')),
@@ -300,10 +464,18 @@ window.__ModuleLoader__.load({
           h('p', { className: 'skm-hint' }, t('hintMerged')),
           err ? h('p', { className: 'skm-msg skm-msg-err' }, err) : null,
           msg ? h('p', { className: 'skm-msg' }, msg) : null,
+          importing ? h('p', { className: 'skm-msg' }, fill(t('importing'), { name: importing })) : null,
           loading && !data ? h('div', { className: 'skm-empty' }, t('loading')) : null,
           !loading && !skills.length ? h('div', { className: 'skm-empty' }, t('empty')) : null,
           group(t('mine'), mine),
           group(t('builtin'), builtins)),
+
+        dragging
+          ? h('div', { className: 'skm-drop', 'aria-hidden': 'true' },
+            h('div', { className: 'skm-drop-in' },
+              h('div', { className: 'skm-drop-t' }, t('dropTitle')),
+              h('div', { className: 'skm-drop-h' }, t('dropHint'))))
+          : null,
 
         viewer ? h('div', { className: 'skm-root', role: 'presentation' },
           h('div', {
@@ -418,6 +590,13 @@ window.__ModuleLoader__.load({
   font:inherit; font-size:15px; line-height:1; }
 .skm-icon:hover:not(:disabled) { background:var(--dsw-alias-interactive-bg-hover);
   color:var(--dsw-alias-label-primary); }
+.skm-drop { position:fixed; inset:0; z-index:1300; display:grid; place-items:center; padding:24px;
+  pointer-events:none; background:var(--dsw-alias-bg-mask-1,var(--dsw-alias-bg-overlay)); }
+.skm-drop-in { max-width:520px; padding:26px 32px; text-align:center;
+  border:1.5px dashed var(--dsw-alias-brand-primary); border-radius:var(--dsw-radius-panel,20px);
+  background:var(--dsw-alias-bg-layer-2); color:var(--dsw-alias-label-primary); }
+.skm-drop-t { margin-bottom:6px; font-size:14px; font-weight:600; }
+.skm-drop-h { font-size:12.5px; line-height:1.62; color:var(--dsw-alias-label-secondary); }
 `;
 
     /* ── 注册 ── */

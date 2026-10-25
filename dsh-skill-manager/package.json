@@ -1,6 +1,6 @@
 {
   "name": "@local/skill-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "技能工作台：看清内置技能、估算描述占用的 prompt 预算，并创建/编辑你自己放在 <DSH_HOME>/skills 的技能。",

@@ -24,6 +24,22 @@ Skill Manager                             📂 浏览   ↻ 刷新
 - **🗑 每行都有**；我的技能可点（删整个目录），内置技能置灰不可点。
 - 分组标题只带个数（`我的技能 4` / `内置技能 9`），两组共用的说明合并成顶栏那一行。
 - 面板**不编辑正文**：改写交给文件夹里的编辑器，或者在对话里用 `skill_manager_save`。
+- **拖文件夹进来 = 添加技能**（详见下一节）。
+
+## 拖拽导入
+
+把技能目录从资源管理器拖到面板上，松手即导入。
+
+- **目录**：整棵树复制进 `<技能根>/<name>/`。`SKILL.md` 之外的文件（`scripts/`、`references/`、图片……）原样落盘，二进制走 base64。
+- **技能名以 `SKILL.md` 的 frontmatter 为准**，不取目录名——provider 认的是 `frontmatter.name`，按目录名写盘只会得到一个名不对版的技能。所以 `name`（必须 kebab-case）和 `description` 缺一个就直接拒绝，不猜、不自动改名。
+- **单个 `.md` 文件**：写成平铺技能 `<技能根>/<name>.md`（`scanSkills` 本来就支持这一形态）。
+- **先落临时目录再整体 rename**：中途失败不会留下半个技能。同名技能已存在时拒绝，要替换请先删。
+
+服务端不信任何一条路径：绝对路径、`..`、盘符、Windows 非法字符与保留名（`con`/`nul`/`com1`…）、以点或空格结尾的片段全部拒绝，落盘前还会再核对一次目标仍在临时目录内。
+
+上限（服务端卡，客户端只是提前报错）：单文件 4 MB、整次导入 24 MB、文件数 400。为此 `/import` 单独放宽了请求体上限，其余路由仍是 1 MB。
+
+浏览器 API 的硬边界：**空目录传不过来**（`readEntries` 不暴露空目录）、符号链接/junction 不会被跟随，而且这是**复制**不是移动，原文件夹留在原地。
 
 ## 它不做什么（重要）
 
@@ -79,6 +95,7 @@ GET|POST /api/skill-manager/list
 POST     /api/skill-manager/read     {name}        → {kind:'file'|'bundled', raw, path, revealable}
 POST     /api/skill-manager/reveal   {scope:'root'} → 打开技能根目录
 POST     /api/skill-manager/reveal   {name}        → 打开该技能目录（内置技能返回 400）
+POST     /api/skill-manager/import   {name, kind:'dir'|'flat', files:[{path, data(base64)}]}
 POST     /api/skill-manager/save     {…}
 POST     /api/skill-manager/toggle   {name, surface, value}
 POST     /api/skill-manager/delete   {name}
@@ -100,6 +117,8 @@ POST     /api/skill-manager/delete   {name}
 - 内置技能既不能编辑也不能删除；同名新建会被拒绝（含与内置重名）。
 - 不导出 schemastery 的 `Config`：link 安装按真实路径解析时找不到 `@deepseek-ai/schemastery`，会激活失败。配置在运行时归一化。
 - **类名必须带前缀。** 第一版按钮用了裸的 `pri` / `danger`，和宿主全局 CSS 撞上会导致「新建」和「刷新」字体不一致。现在所有类名都是 `skm-*`，按钮基础类还显式钉死 `font-size:13px; font-weight:400`。
+- **拖拽导入会丢掉空目录**（浏览器不暴露），且不会跟随 junction。另外它读的是 `dataTransfer.items[i].webkitGetAsEntry()`，属于 Chromium 私有前缀 API——宿主是 Electron 所以可用，换成别的内核就得改。
+- **拖拽时 Electron 会把文件当导航目标**，所以 `dragover`/`drop` 必须 `preventDefault()`，否则整页跳去 `file://`。事件挂在面板根节点上，面板没打开时拖进来仍然会跳页。
 
 ## 配置
 
@@ -112,12 +131,12 @@ config:
 
 ## 测试
 
-> 下面两个脚本属于开发期的临时验证目录（原 PlayGround 工作区的 `.team/`），**未随本仓库迁移**，本仓库不含测试。
-
-- `.team/skilltest/test.mjs`（58 项）：provider 注册、frontmatter 解析/序列化往返、启停真写盘、未知键保留、非法布尔值剔除、kebab 校验、重名拒绝、单文件技能、只读查看（文件与内置两条分支）、打开目录的内置拒绝、回环守卫与 405
-- `.team/skillcheck/check.mjs`（34 项）：双语字典对齐、CSS 只用 `--dsw-*` 令牌、slot id/key 配对、图标与清单一致性
+仓库里带一个回归测试，只覆盖拖拽导入那条路径（用桩 ctx 起插件、直接喂假 req/res，不启动 DSH、不碰真实 `<DSH_HOME>`）：
 
 ```bash
-node .team/skilltest/test.mjs
-node .team/skillcheck/check.mjs
+node test/import.test.mjs   # 32 项
 ```
+
+覆盖：目录导入（含 `scripts/`、`references/`、二进制往返）、以 frontmatter 命名、单文件目录不退化成平铺、10 种非法路径、`kind` 与内容不符、重名、frontmatter 校验、平铺导入、请求体上限放宽、回环守卫、既有 4 个工具仍在。
+
+> 早期开发用的两个一次性脚本（`.team/skilltest`、`.team/skillcheck`，58 + 34 项）属于原 PlayGround 工作区的临时验证目录，**未随本仓库迁移**，上面的命令只对 `test/import.test.mjs` 有效。

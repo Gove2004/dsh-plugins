@@ -13,7 +13,8 @@
  *
  * 两个入口共用同一套 core：
  *   - 对话工具：skill_manager_list / save / toggle / delete
- *   - 图形界面：左侧栏入口 + 同源 HTTP 路由（<routePrefix>/list|read|save|toggle|delete）
+ *   - 图形界面：左侧栏入口 + 同源 HTTP 路由（<routePrefix>/list|read|save|import|toggle|delete）
+ *     其中 import 供面板的「拖文件夹进来」用，会写整棵目录（scripts/、references/ 等）。
  */
 
 import fs from 'node:fs';
@@ -45,12 +46,55 @@ const PROVIDER_NAME = 'skill-manager';
 const KEBAB_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_BODY = 512 * 1024;
 
+/* 拖拽导入的上限：都在服务端卡一遍，客户端的预检只是为了早点报错 */
+const MAX_IMPORT_BYTES = 24 * 1024 * 1024;
+const MAX_IMPORT_FILES = 400;
+const MAX_IMPORT_FILE_BYTES = 4 * 1024 * 1024;
+
 function dshHome() {
   return process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 }
 
 function skillRootOf(config) {
   return config.skillRoot ? path.resolve(config.skillRoot) : path.join(dshHome(), 'skills');
+}
+
+/* ───────────────────────── 导入（拖拽用） ───────────────────────── */
+
+/**
+ * 把浏览器给的名字规范成 kebab-case。
+ * 拿不到合法名字时返回空串——CJK 目录名会落在这里，由调用方明确报错，
+ * 而不是悄悄塞一个 `skill-1` 之类的名字进去。
+ */
+function kebabize(raw) {
+  return String(raw ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const WIN_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
+/**
+ * 校验一个「相对技能目录」的路径。
+ * 浏览器给的 path 是外部输入，一律按不可信处理：绝对路径、`..`、盘符、
+ * Windows 非法字符与保留名全部拒绝，最后只交出用 `/` 连接的安全片段。
+ */
+function safeRelPath(raw) {
+  const text = String(raw ?? '').replace(/\\/g, '/').trim();
+  if (!text) throw new Error('文件路径为空');
+  if (text.startsWith('/') || /^[A-Za-z]:/.test(text)) throw new Error(`拒绝绝对路径：${raw}`);
+  const parts = text.split('/');
+  for (const part of parts) {
+    if (!part || part === '.' || part === '..') throw new Error(`路径含非法片段：${raw}`);
+    if (/[<>:"|?*\u0000-\u001f]/.test(part)) throw new Error(`路径含非法字符：${raw}`);
+    if (/[. ]$/.test(part)) throw new Error(`路径片段不能以点或空格结尾：${raw}`);
+    if (WIN_RESERVED.test(part)) throw new Error(`路径命中 Windows 保留名：${raw}`);
+  }
+  return parts.join('/');
 }
 
 /* ───────────────────────── frontmatter ───────────────────────── */
@@ -477,6 +521,107 @@ function createCore(ctx, config, state) {
       };
     },
 
+    /**
+     * 拖拽导入：把浏览器读到的整棵目录写进 `<skillRoot>/<name>/`。
+     *
+     * 名字以 SKILL.md 的 frontmatter 为准（provider 认的是 frontmatter.name，
+     * 不是目录名），所以不猜、不重命名，frontmatter 不合法就直接拒绝。
+     *
+     * 先写进同盘的临时目录、校验通过后整体 rename，中途失败不会留下半个技能。
+     */
+    async importSkill(input) {
+      const cwd = input.cwd || cwdOf();
+      const files = Array.isArray(input.files) ? input.files : [];
+      if (!files.length) throw new Error('没有收到任何文件');
+      if (files.length > MAX_IMPORT_FILES) throw new Error(`文件太多（上限 ${MAX_IMPORT_FILES} 个）`);
+
+      /* 解码 + 尺寸检查：全部做完再落盘 */
+      const decoded = files.map((file) => {
+        const rel = safeRelPath(file.path);
+        const buf = Buffer.from(String(file.data ?? ''), 'base64');
+        if (!buf.length) throw new Error(`文件是空的：${rel}`);
+        if (buf.length > MAX_IMPORT_FILE_BYTES) {
+          throw new Error(`单个文件超过 ${Math.round(MAX_IMPORT_FILE_BYTES / 1024 / 1024)} MB：${rel}`);
+        }
+        return { rel, buf };
+      });
+
+      const flat = input.kind === 'flat';
+      const skillFile = decoded.find((f) => f.rel.toLowerCase() === 'skill.md');
+      if (flat) {
+        if (decoded.length !== 1 || decoded[0].rel.includes('/')) throw new Error('平铺技能只接受单个 .md 文件');
+        if (!/\.md$/i.test(decoded[0].rel)) throw new Error('平铺技能的文件必须以 .md 结尾');
+      } else if (!skillFile) {
+        throw new Error('拖进来的目录里没有根级 SKILL.md，不是技能目录');
+      }
+      const skillText = (flat ? decoded[0].buf : skillFile.buf).toString('utf8');
+
+      const { data, error } = parseFrontmatter(skillText);
+      if (error) throw new Error(`frontmatter 有问题：${error}`);
+      const skillName = typeof data.name === 'string' ? data.name.trim() : '';
+      if (!skillName) throw new Error('frontmatter 缺少 name');
+      if (!KEBAB_RE.test(skillName)) throw new Error(`frontmatter 的 name 必须是 kebab-case：${skillName}`);
+      if (!oneLine(data.description)) throw new Error('frontmatter 缺少 description');
+
+      const { skills } = scanSkills(config, cwd);
+      if (findMine(skills, skillName)) throw new Error(`技能 ${skillName} 已存在；要替换请先删掉它`);
+      let taken = [];
+      try {
+        taken = (await ctx.skills.list({ cwd })).map((s) => s.name);
+      } catch {
+        taken = skills.map((s) => s.name);
+      }
+      if (taken.includes(skillName)) throw new Error(`技能名 ${skillName} 已被占用（含内置技能），换一个`);
+
+      const root = skillRootOf(config);
+      fs.mkdirSync(root, { recursive: true });
+      const staging = path.join(root, `.import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+      fs.mkdirSync(staging, { recursive: true });
+      let done = false;
+      try {
+        let total = 0;
+        for (const file of decoded) {
+          total += file.buf.length;
+          if (total > MAX_IMPORT_BYTES) throw new Error('导入内容过大');
+          const target = path.join(staging, file.rel);
+          const relCheck = path.relative(staging, target);
+          if (!relCheck || relCheck.startsWith('..') || path.isAbsolute(relCheck)) {
+            throw new Error(`拒绝写到技能目录之外：${file.rel}`);
+          }
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.writeFileSync(target, file.buf);
+        }
+
+        if (flat) {
+          const finalFile = path.join(root, `${skillName}.md`);
+          fs.renameSync(path.join(staging, decoded[0].rel), finalFile);
+          fs.rmSync(staging, { recursive: true, force: true });
+          done = true;
+          refresh();
+          return { ok: true, message: `已导入 ${skillName}（平铺技能）`, path: finalFile, files: 1 };
+        }
+
+        const finalDir = path.join(root, skillName);
+        fs.renameSync(staging, finalDir);
+        done = true;
+        refresh();
+        return {
+          ok: true,
+          message: `已导入 ${skillName}（${decoded.length} 个文件）`,
+          path: path.join(finalDir, 'SKILL.md'),
+          files: decoded.length,
+        };
+      } finally {
+        if (!done) {
+          try {
+            fs.rmSync(staging, { recursive: true, force: true });
+          } catch {
+            /* 清理失败不掩盖原始错误 */
+          }
+        }
+      }
+    },
+
     toggle(skillName, surface, value, cwdArg) {
       const cwd = cwdArg || cwdOf();
       const { skills } = scanSkills(config, cwd);
@@ -546,15 +691,15 @@ const RESULT_SCHEMA = {
   additionalProperties: true,
 };
 
-function readBody(req) {
+function readBody(req, limit = 1_000_000) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
       size += buf.length;
-      if (size > 1_000_000) {
-        reject(new Error('请求体过大'));
+      if (size > limit) {
+        reject(new Error(`请求体过大（上限 ${Math.round(limit / 1024 / 1024)} MB）`));
         req.destroy();
         return;
       }
@@ -634,6 +779,8 @@ function mountWebUi(ctx, config, core, logger) {
         return core.reveal(body.name, body.cwd);
       });
       route('save', ['POST'], async (req) => core.save({ ...(await readBody(req)), overwrite: true }));
+      /* 拖拽导入：整棵目录 base64 上来，所以单独放宽请求体上限 */
+      route('import', ['POST'], async (req) => core.importSkill({ ...(await readBody(req, MAX_IMPORT_BYTES)), overwrite: false }));
       route('toggle', ['POST'], async (req) => {
         const body = await readBody(req);
         return core.toggle(body.name, body.surface, body.value, body.cwd);
