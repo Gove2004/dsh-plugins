@@ -377,8 +377,8 @@ window.__ModuleLoader__.load({
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
       }
 
-      function onDragLeave(event) {
-        if (!hasFiles(event)) return;
+      function onDragLeave() {
+        /* 这里不查 types：dragleave 时它可能已经是空的，查了就会漏减、遮罩卡住 */
         dragDepth.current = Math.max(0, dragDepth.current - 1);
         if (!dragDepth.current) setDragging(false);
       }
