@@ -67,7 +67,18 @@ pnpm install
 
 装完 `node_modules/@local/` 下会出现两个指向本仓库子目录的 junction。**重启 DSH**，左侧栏就会出现两个入口。
 
-> 依赖从哪来：插件自己不装依赖。`react`、`@deepseek-ai/schemastery`、`@deepseek-ai/dsh-client-*` 这些都由宿主（profile 的 `node_modules`）提供，插件在 `package.json` 里只声明 `peerDependencies`。所以本仓库没有 `node_modules`，也不该有。
+> 依赖从哪来：插件自己不装依赖。`react`、`@deepseek-ai/dsh-client-*` 这些都由宿主（profile 的 `node_modules`）提供。所以本仓库没有 `node_modules`，也不该有。
+>
+> ⚠️ **宿主侧的 `lib/index.js` 不要 import 任何非 `node:` 包**（包括 `@deepseek-ai/schemastery`）。
+> 插件是按 `link:` 挂进 profile 的，Node 解析裸导入时会先 `realpath` 到本仓库的真实路径
+> （`E:\Projects\Git\dsh-plugins\dsh-mcp-manager\lib\index.js`），再从**那里**往上找 `node_modules`；
+> 而本仓库刻意不带 `node_modules`，profile 里的包**不在**这条查找链上，于是插件激活时报
+> `ERR_MODULE_NOT_FOUND`。声明 `peerDependencies` 也救不了：profile 的 `pnpm-workspace.yaml`
+> 里 `autoInstallPeers: false`，peer 根本不会被落盘。
+>
+> 需要配置校验就用运行时归一化（见 `dsh-skill-manager` / `dsh-mcp-manager` 的 `normalizeConfig`），
+> **不要导出 schemastery 的 `Config`**。客户端半边（`lib/client.js`）不受影响——它跑在浏览器里，
+> 由宿主的 `dsh.client.inject` 机制解析。
 
 ## 开发
 

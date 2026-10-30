@@ -16,21 +16,31 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import z from '@deepseek-ai/schemastery';
 
 export const name = 'mcp-manager';
 
 /** loader 用于动态增删 mcp-client 条目；tools 用于注册管理工具。 */
 export const inject = ['tools', 'loader'];
 
-export const Config = z.object({
-  /** 投射出的 loader 条目 id 前缀：<entryPrefix>-<serverName>。 */
-  entryPrefix: z.string().default('mcp'),
-  /** 存储文件名，放在 <DSH_HOME>/storages/ 下。 */
-  storageFile: z.string().default('mcp_manager.json'),
-  /** HTTP 路由前缀（界面数据源）。 */
-  routePrefix: z.string().default('/api/mcp-manager'),
-});
+/*
+ * 不导出 schemastery 的 Config：本插件是 link 进 profile 的，Node 按真实路径解析
+ * 裸导入时会从 E:\...\dsh-mcp-manager\ 往上找 node_modules，而本仓库刻意不带
+ * node_modules（依赖由宿主 profile 提供），因此 `@deepseek-ai/schemastery`
+ * 解析失败、插件激活报 ERR_MODULE_NOT_FOUND。
+ * 这里改为运行时归一化，缺字段一律给默认值。
+ */
+function normalizeConfig(input) {
+  const raw = input && typeof input === 'object' ? input : {};
+  const text = (value, fallback) => (typeof value === 'string' && value.trim() ? value.trim() : fallback);
+  return {
+    /** 投射出的 loader 条目 id 前缀：<entryPrefix>-<serverName>。 */
+    entryPrefix: text(raw.entryPrefix, 'mcp'),
+    /** 存储文件名，放在 <DSH_HOME>/storages/ 下。 */
+    storageFile: text(raw.storageFile, 'mcp_manager.json'),
+    /** HTTP 路由前缀（界面数据源）。 */
+    routePrefix: text(raw.routePrefix, '/api/mcp-manager'),
+  };
+}
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client';
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -417,7 +427,8 @@ function mountWebUi(ctx, config, core, logger) {
 
 /* ───────────────────────────── 插件入口 ───────────────────────────── */
 
-export async function apply(ctx, config) {
+export async function apply(ctx, rawConfig) {
+  const config = normalizeConfig(rawConfig);
   const logger = typeof ctx.logger === 'function' ? ctx.logger('mcp-manager') : (ctx.logger ?? console);
   const core = createCore(ctx, config);
   const disposers = [];
