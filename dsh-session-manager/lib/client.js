@@ -103,7 +103,7 @@ window.__ModuleLoader__.load({
           deleting: '删除中…',
         };
         const en = {
-          delete: 'delete',
+          delete: 'Session Delete',
           confirmTitle: 'Delete Session',
           confirmDesc: 'This permanently deletes session',
           cancel: 'Cancel',
