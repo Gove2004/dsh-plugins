@@ -1,0 +1,7 @@
+# Session Manager for DSH Web
+# 精简版：仅删除已归档会话，参考自 dsh-archive-manager
+- insert:
+    - id: session-manager
+      name: '@local/dsh-session-manager'
+      config:
+        routePrefix: /api/session-manager
