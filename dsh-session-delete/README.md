@@ -1,10 +1,10 @@
-# dsh-session-manager
+# dsh-session-delete
 
 为 DSH Web 添加「删除已归档会话」功能，入口在侧边栏会话列表每个会话的「⋮」菜单中。
 
 ## 功能
 
-- **侧边栏菜单项**：每个会话的 `...` 菜单底部出现红色「删除」按钮，点击后弹出确认对话框
+- **侧边栏菜单项**：每个会话的 `...` 菜单底部出现蓝色「Session Delete」按钮，点击后弹出确认对话框
 - **对话工具**：`session_manager_delete` 工具，供 Agent 程序化删除已归档会话
 - **完整清理**：终止 agent → 删除持久化日志目录（含 Windows 文件锁定重试）→ 从工作区 detach
 
@@ -35,11 +35,11 @@
 ```json
 {
   "dependencies": {
-    "@local/dsh-session-manager": "link:D:/Data/Projects/dsh-plugins/dsh-session-manager"
+    "@local/dsh-session-delete": "link:D:/Data/Projects/dsh-plugins/dsh-session-delete"
   },
   "dsh": {
     "profile": {
-      "bundles": ["@local/dsh-session-manager"]
+      "bundles": ["@local/dsh-session-delete"]
     }
   }
 }
@@ -51,7 +51,7 @@
 pnpm install --dir ~/.dsh/profiles/desktop
 ```
 
-或直接在 DSH 插件管理器中启用 `@local/dsh-session-manager`。
+或直接在 DSH 插件管理器中启用 `@local/dsh-session-delete`。
 
 ## 配置
 
@@ -59,8 +59,8 @@ pnpm install --dir ~/.dsh/profiles/desktop
 
 ```yaml
 - insert:
-    - id: session-manager
-      name: '@local/dsh-session-manager'
+    - id: session-delete
+      name: '@local/dsh-session-delete'
       config:
         routePrefix: /api/session-manager   # 默认值，可省略
 ```

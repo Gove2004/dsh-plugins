@@ -1,17 +1,17 @@
 /**
- * @local/dsh-session-manager —— 客户端半边
+ * @local/dsh-session-delete —— 客户端半边
  *
  * 在每个会话的「...」菜单中注入删除项。
  * 点击后弹出确认对话框，确认后调用 POST /api/session-manager/delete。
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/dsh-session-manager',
+  id: '@local/dsh-session-delete',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
 
-    const NS = 'sessionManager';
+    const NS = 'sessionDelete';
     const API = '/api/session-manager';
 
     /* ── 样式：使用 DSW token，对齐侧边栏菜单风格 ── */
@@ -121,7 +121,7 @@ window.__ModuleLoader__.load({
         el.textContent = CSS;
         document.head.appendChild(el);
         return () => { try { el.remove(); } catch {} };
-      }, 'session-manager: styles');
+      }, 'session-delete: styles');
 
       // 在侧边栏会话列表的「...」菜单中注册删除项
       slots.inject('sidebar.workspaces.session.menu.item', () => slots.register({
