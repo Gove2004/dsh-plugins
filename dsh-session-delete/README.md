@@ -1,21 +1,22 @@
 # dsh-session-delete
 
-为 DSH Web 添加「删除已归档会话」功能，入口在侧边栏会话列表每个会话的「⋮」菜单中。
+为 DSH Web 添加「删除会话」功能，入口在侧边栏会话列表每个会话的「⋮」菜单中。
 
 ## 功能
 
-- **侧边栏菜单项**：每个会话的 `...` 菜单底部出现蓝色「Session Delete」按钮，点击后弹出确认对话框
-- **对话工具**：`session_manager_delete` 工具，供 Agent 程序化删除已归档会话
+- **侧边栏菜单项**：每个会话的 `...` 菜单底部出现「Session Delete」按钮，点击后弹出确认对话框
+- **对话工具**：`session_manager_delete` 工具，供 Agent 程序化删除会话
 - **完整清理**：终止 agent → 删除持久化日志目录（含 Windows 文件锁定重试）→ 从工作区 detach
+- **无需先归档**：未归档的会话可直接删除；已归档的会顺带从归档集合中移除
 
 ## 删除流程
 
 ```
 验证 sessionId
-  → 检查是否已归档
   → 等待活跃 agent 终止（1s 有界超时）
+  → 拒绝仍然活跃的会话
   → 删除日志目录（EBUSY/EPERM 重试 4 次）
-  → detachSession + 清理 archivedSessionIds
+  → detachSession（幂等）+ 若在归档集合中则清理 archivedSessionIds
 ```
 
 ## 架构
@@ -24,7 +25,7 @@
 |---|---|
 | `lib/index.js` | 宿主半边：HTTP 路由 + `session_manager_delete` 工具 |
 | `lib/client.js` | 客户端半边：React 组件，注入 `sidebar.workspaces.session.menu.item` slot |
-| `cordis.patch.yml` | Cordis 注入配置，挂载 `/api/session-manager` 路由前缀 |
+| `cordis.patch.yml` | Cordis 注入配置，挂载 `/api/session-delete` 路由前缀 |
 | `locale/zh.json` / `en.json` | 多语言字典 |
 | `icon.svg` | 插件图标 |
 
@@ -62,7 +63,7 @@ pnpm install --dir ~/.dsh/profiles/desktop
     - id: session-delete
       name: '@local/dsh-session-delete'
       config:
-        routePrefix: /api/session-manager   # 默认值，可省略
+        routePrefix: /api/session-delete   # 默认值，可省略
 ```
 
 ## 参考

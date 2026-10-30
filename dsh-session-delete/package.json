@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "会话管理器：删除已归档会话，清理相关存储文件。参考自 dsh-archive-manager。",
+  "description": "会话删除：永久删除会话并清理其日志目录与工作区归属。参考自 dsh-archive-manager。",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",

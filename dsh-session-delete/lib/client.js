@@ -2,7 +2,7 @@
  * @local/dsh-session-delete —— 客户端半边
  *
  * 在每个会话的「...」菜单中注入删除项。
- * 点击后弹出确认对话框，确认后调用 POST /api/session-manager/delete。
+ * 点击后弹出确认对话框，确认后调用 POST /api/session-delete/delete。
  */
 
 window.__ModuleLoader__.load({
@@ -12,7 +12,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     const NS = 'sessionDelete';
-    const API = '/api/session-manager';
+    const API = '/api/session-delete';
 
     /* ── 样式：使用 DSW token，对齐侧边栏菜单风格 ── */
     const CSS = `

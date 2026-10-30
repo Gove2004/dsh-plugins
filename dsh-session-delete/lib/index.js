@@ -1,14 +1,15 @@
 // @local/dsh-session-delete —— 宿主半边
 //
 // 基于 dsh-archive-manager 的删除会话逻辑精简而来。
-// 只保留「删除已归档会话」的核心功能。
 //
 // 删除管线：
 //   1. 验证会话 ID
-//   2. 检查是否已归档
-//   3. 有界超时等待 agent 终止
+//   2. 有界超时等待 agent 终止
+//   3. 拒绝仍然活跃的会话
 //   4. 删除持久化日志目录（含 Windows 重试）
-//   5. 从工作区 detach + 清理归档记录
+//   5. 从工作区 detach（幂等）+ 若在归档集合中则一并清理
+//
+// 归档不是前置条件：未归档的会话也能直接删。
 
 import { rm } from 'node:fs/promises';
 import { dirname, parse, resolve } from 'node:path';
@@ -31,7 +32,7 @@ function normalizeConfig(raw) {
   return {
     routePrefix: typeof r.routePrefix === 'string' && r.routePrefix.trim()
       ? r.routePrefix.trim()
-      : '/api/session-manager',
+      : '/api/session-delete',
   };
 }
 
@@ -148,11 +149,14 @@ async function removeLogDir(ctx, sessionId) {
 async function deleteSession(ctx, sessionId) {
   if (typeof sessionId !== 'string' || sessionId === '') return { ok: false, message: '会话ID不能为空' };
 
-  // 检查是否已归档
   const registry = ctx.workspaceRegistry;
   const archivedIds = registry?.state?.archivedSessionIds;
   const isArchived = Array.isArray(archivedIds) && archivedIds.includes(sessionId);
-  if (!isArchived) return { ok: false, message: '只能删除已归档的会话' };
+
+  /*
+   * 归档不再是前置条件：未归档的会话也能直接删。
+   * 归档只决定要不要顺带清理 archivedSessionIds，不影响删除本身。
+   */
 
   // 检查是否有活跃 agent
   const agent = ctx.agents?.get?.(sessionId);
@@ -161,7 +165,7 @@ async function deleteSession(ctx, sessionId) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  // 检查会话是否还活着
+  // 检查会话是否还活着（删自己所在的会话会先 detach，故不阻断）
   if (ctx.sessions?.get?.(sessionId) !== undefined) {
     return { ok: false, message: '会话仍然活跃，无法删除' };
   }
@@ -170,7 +174,7 @@ async function deleteSession(ctx, sessionId) {
   const removed = await removeLogDir(ctx, sessionId);
   if (!removed) return { ok: false, message: '日志目录删除失败' };
 
-  // 从工作区 detach + 清理归档记录
+  // 从工作区 detach（幂等：不是成员时不动）
   if (registry?.entities && typeof registry.entities.values === 'function') {
     for (const entity of registry.entities.values()) {
       try {
@@ -178,7 +182,8 @@ async function deleteSession(ctx, sessionId) {
       } catch {}
     }
   }
-  if (registry?.enqueueOperation) {
+  // 仅当它确实在归档集合里时才清理该记录
+  if (isArchived && registry?.enqueueOperation) {
     await registry.enqueueOperation(async () => {
       if (registry.state && Array.isArray(registry.state.archivedSessionIds)) {
         registry.state.archivedSessionIds = registry.state.archivedSessionIds.filter((id) => id !== sessionId);
@@ -219,7 +224,7 @@ export async function apply(ctx, rawConfig) {
   // 注册对话工具
   ctx.tools.register({
     name: 'session_manager_delete',
-    description: '删除指定的已归档会话，清理相关存储文件和 agent。会话必须先归档才能删除。',
+    description: '永久删除指定的会话，清理其日志目录、工作区归属和 agent。无需先归档；会话必须处于非活跃状态。',
     parameters: {
       type: 'object',
       properties: { sessionId: { type: 'string', description: '要删除的会话 ID' } },
