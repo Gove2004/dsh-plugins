@@ -1,7 +1,0 @@
-# Session Delete for DSH Web
-# 删除会话，参考自 dsh-archive-manager
-- insert:
-    - id: session-delete
-      name: '@local/dsh-session-delete'
-      config:
-        routePrefix: /api/session-delete

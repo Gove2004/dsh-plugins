@@ -1,14 +1,13 @@
 # dsh-plugins
 
-DeepSeek Harness（DSH）的本地插件集合：三个手写的**面板 + 对话工具**插件，源码即产物，没有构建步骤。
+DeepSeek Harness（DSH）的本地插件集合：两个手写的**面板 + 对话工具**插件，源码即产物，没有构建步骤。
 
 | 包名 | 目录 | 版本 | 作用 |
 |---|---|---|---|
 | `@local/mcp-manager` | [`dsh-mcp-manager/`](dsh-mcp-manager/README.md) | 2.2.0 | 管理你手写的 MCP 服务器清单，投射成 loader 条目；左侧栏管理页 + `mcp_list` / `mcp_add` / `mcp_remove` / `mcp_toggle` |
 | `@local/skill-manager` | [`dsh-skill-manager/`](dsh-skill-manager/README.md) | 1.1.0 | 技能工作台：启停、只读查看 `SKILL.md`、打开目录、删除、**拖文件夹进来即导入**；左侧栏面板 + `skill_manager_*` 四个工具 |
-| `@local/dsh-session-delete` | [`dsh-session-delete/`](dsh-session-delete/README.md) | 1.0.0 | 会话删除：删除已归档会话并清理相关存储文件；左侧栏菜单 + `session_manager_delete` 工具 |
 
-三个插件互不依赖，可以单独安装。细节（界面结构、配置项、HTTP 路由、存储格式、已知边界）都在各自的 README 里，本文件只讲**这个仓库整体**怎么装、怎么改。
+两个插件互不依赖，可以单独安装。细节（界面结构、配置项、HTTP 路由、存储格式、已知边界）都在各自的 README 里，本文件只讲**这个仓库整体**怎么装、怎么改。
 
 ## 目录结构
 
@@ -23,7 +22,6 @@ dsh-plugins/
 │   │   └── client.js         # 浏览器侧：面板 UI（原生 DOM，无构建）
 │   ├── locale/{en,zh}.json   # 双语字典
 │   └── README.md
-├── dsh-session-delete/       # 同上结构（会话删除）
 └── dsh-skill-manager/        # 同上结构
     └── test/import.test.mjs  # 拖拽导入的回归测试（node test/import.test.mjs）
 ```
@@ -34,14 +32,13 @@ dsh-plugins/
 
 以 desktop profile（`%USERPROFILE%\.dsh\profiles\desktop`）为例。
 
-**1. 在 profile 的 `package.json` 里加三条 link 依赖**
+**1. 在 profile 的 `package.json` 里加两条 link 依赖**
 
 ```json
 {
   "dependencies": {
     "@local/mcp-manager": "link:D:/Data/Projects/dsh-plugins/dsh-mcp-manager",
-    "@local/skill-manager": "link:D:/Data/Projects/dsh-plugins/dsh-skill-manager",
-    "@local/dsh-session-delete": "link:D:/Data/Projects/dsh-plugins/dsh-session-delete"
+    "@local/skill-manager": "link:D:/Data/Projects/dsh-plugins/dsh-skill-manager"
   }
 }
 ```
@@ -54,8 +51,7 @@ dsh-plugins/
     "profile": {
       "bundles": [
         "@local/mcp-manager",
-        "@local/skill-manager",
-        "@local/dsh-session-delete"
+        "@local/skill-manager"
       ]
     }
   }
@@ -69,7 +65,7 @@ cd %USERPROFILE%\.dsh\profiles\desktop
 pnpm install
 ```
 
-装完 `node_modules/@local/` 下会出现三个指向本仓库子目录的 junction。**重启 DSH**，左侧栏就会出现三个入口。
+装完 `node_modules/@local/` 下会出现两个指向本仓库子目录的 junction。**重启 DSH**，左侧栏就会出现两个入口。
 
 > 依赖从哪来：插件自己不装依赖。`react`、`@deepseek-ai/dsh-client-*` 这些都由宿主（profile 的 `node_modules`）提供。所以本仓库没有 `node_modules`，也不该有。
 >
@@ -94,7 +90,7 @@ pnpm install
 
 ## 安全与隐私
 
-- 三个插件的 HTTP 路由**都不带鉴权**（`ctx.webServer.register` 本身不做鉴权），所以各自实现**回环守卫**：`remoteAddress` 与 `Host` 都必须指向本机，否则 403。
+- 两个插件的 HTTP 路由**都不带鉴权**（`ctx.webServer.register` 本身不做鉴权），所以各自实现**回环守卫**：`remoteAddress` 与 `Host` 都必须指向本机，否则 403。
 - MCP Manager 把 `headers` / `env`（含 API key、token）**明文**存在 `%USERPROFILE%\.dsh\storages\mcp_manager.json`。分享或截图前记得打码，这个文件也不要进版本库。
 - Skill Manager 的删除会**穿透 junction/符号链接**，所以 `%USERPROFILE%\.dsh\skills\` 下建议放**副本**，不要把 git 里维护的源目录直接链进去。
 
