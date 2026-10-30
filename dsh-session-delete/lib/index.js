@@ -14,7 +14,15 @@ import { rm } from 'node:fs/promises';
 import { dirname, parse, resolve } from 'node:path';
 
 export const name = 'session-delete';
-export const inject = ['tools'];
+
+/*
+ * deleteSession 会直接读这些服务；Cordis 对未声明的服务访问会抛
+ * `cannot get property "X" without inject`，因此必须全部声明。
+ * 与宿主自带的 dsh-client-ui-deliverables 的
+ * inject: ['agents', 'sessions', 'workspaceRegistry'] 保持一致。
+ * webServer 走下面的 ctx.inject(['webServer'], ...)，不在这里声明。
+ */
+export const inject = ['tools', 'agents', 'sessions', 'workspaceRegistry', 'sessionPersistence'];
 
 /* ───────────────────────── 配置 ───────────────────────── */
 
