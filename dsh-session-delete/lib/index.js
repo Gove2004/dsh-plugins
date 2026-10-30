@@ -11,6 +11,9 @@
 //
 // 归档不是前置条件：未归档的会话也能直接删。
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import { dirname, parse, resolve } from 'node:path';
 
@@ -117,33 +120,90 @@ function mountWebUi(ctx, config, logger) {
 const REMOVE_RETRY_DELAYS_MS = [0, 120, 300, 600];
 const REMOVE_RETRYABLE_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'UNKNOWN', 'ETXTBSY']);
 
-async function findLogDir(ctx, sessionId) {
-  const persistence = ctx.sessionPersistence;
-  if (!persistence || typeof persistence.findLog !== 'function') return null;
-  try {
-    const logPath = await persistence.findLog(sessionId);
-    if (typeof logPath !== 'string' || logPath === '') return null;
-    const dir = resolve(dirname(logPath));
-    if (parse(dir).root === dir) return null;
-    return dir;
-  } catch { return null; }
+/** DSH 数据根目录，与 dsh-mcp-manager 保持一致。 */
+function dshHome() {
+  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 }
 
-async function removeLogDir(ctx, sessionId) {
-  const dir = await findLogDir(ctx, sessionId);
-  if (!dir) return true;
-  for (let attempt = 0; attempt < REMOVE_RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      await rm(dir, { recursive: true, force: true });
-      return true;
-    } catch (error) {
-      const code = error?.code;
-      const retriable = code && REMOVE_RETRYABLE_CODES.has(code);
-      if (!retriable || attempt === REMOVE_RETRY_DELAYS_MS.length - 1) return false;
-      await new Promise((r) => setTimeout(r, REMOVE_RETRY_DELAYS_MS[attempt + 1]));
-    }
+/**
+ * `ctx.sessionPersistence` 是抽象 seam，`findLog` 只由具体后端实现，
+ * 且它按后端自己的 root 解析——和会话实际落盘的 <DSH_HOME>/sessions
+ * 不一定是同一个地方。所以这里不把它当作唯一依据：
+ *   1. 先用 findLog 问后端要路径（拿到就用）
+ *   2. 再按 <DSH_HOME>/sessions/<project>/<sessionId> 的磁盘布局兜底枚举
+ * 两个来源合并去重，确保不会因为后端解析不到就静默跳过删除。
+ */
+function sessionsRoot() {
+  return path.join(dshHome(), 'sessions');
+}
+
+/** 按磁盘布局找出该会话所有可能的目录。 */
+function scanSessionDirs(sessionId) {
+  const root = sessionsRoot();
+  const found = [];
+  let projects;
+  try {
+    projects = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return found;
   }
-  return false;
+  for (const project of projects) {
+    if (!project.isDirectory()) continue;
+    const candidate = path.join(root, project.name, sessionId);
+    try {
+      if (fs.statSync(candidate).isDirectory()) found.push(candidate);
+    } catch { /* 不存在就跳过 */ }
+  }
+  return found;
+}
+
+async function findLogDirs(ctx, sessionId) {
+  const dirs = new Set();
+
+  // 1) 问后端要（可能失败或返回 null）
+  const persistence = ctx.sessionPersistence;
+  if (persistence && typeof persistence.findLog === 'function') {
+    try {
+      const logPath = await persistence.findLog(sessionId);
+      if (typeof logPath === 'string' && logPath !== '') {
+        const dir = resolve(dirname(logPath));
+        // 拒绝盘符根这种危险值
+        if (parse(dir).root !== dir) dirs.add(dir);
+      }
+    } catch { /* 交给磁盘扫描兜底 */ }
+  }
+
+  // 2) 按磁盘布局兜底
+  for (const dir of scanSessionDirs(sessionId)) dirs.add(resolve(dir));
+
+  return [...dirs];
+}
+
+async function removeLogDirs(ctx, sessionId) {
+  const dirs = await findLogDirs(ctx, sessionId);
+  if (!dirs.length) return true; // 本来就没有目录，视作已完成
+
+  let allRemoved = true;
+  for (const dir of dirs) {
+    let done = false;
+    for (let attempt = 0; attempt < REMOVE_RETRY_DELAYS_MS.length && !done; attempt++) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        done = true;
+      } catch (error) {
+        const code = error?.code;
+        const retriable = code && REMOVE_RETRYABLE_CODES.has(code);
+        if (!retriable || attempt === REMOVE_RETRY_DELAYS_MS.length - 1) {
+          allRemoved = false;
+        } else {
+          await new Promise((r) => setTimeout(r, REMOVE_RETRY_DELAYS_MS[attempt + 1]));
+        }
+      }
+    }
+    // 复核：删完必须真的不在
+    if (done && fs.existsSync(dir)) allRemoved = false;
+  }
+  return allRemoved;
 }
 
 async function deleteSession(ctx, sessionId) {
@@ -170,8 +230,8 @@ async function deleteSession(ctx, sessionId) {
     return { ok: false, message: '会话仍然活跃，无法删除' };
   }
 
-  // 删除日志目录
-  const removed = await removeLogDir(ctx, sessionId);
+  // 删除日志目录（后端解析 + 磁盘布局双重定位，并复核结果）
+  const removed = await removeLogDirs(ctx, sessionId);
   if (!removed) return { ok: false, message: '日志目录删除失败' };
 
   // 从工作区 detach（幂等：不是成员时不动）
