@@ -28,8 +28,8 @@ window.__ModuleLoader__.load({
 .dsm-btn-del{background:var(--dsw-alias-state-error-primary);color:#fff}
 .dsm-btn-del:hover:not(:disabled){opacity:.88}
 .dsm-btn:disabled{opacity:.4;cursor:not-allowed}
-.dsm-menu-item{display:inline-flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;font-size:13px;font-family:inherit;color:var(--dsw-alias-state-error-primary);background:none;border:none;border-radius:6px;cursor:pointer;text-align:left;transition:background .12s}
-.dsm-menu-item:hover{background:rgba(220,50,50,.12)}
+.dsm-menu-item{display:inline-flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;font-size:13px;font-family:inherit;color:var(--dsw-alias-brand-primary);background:none;border:none;border-radius:6px;cursor:pointer;text-align:left;transition:background .12s}
+.dsm-menu-item:hover{background:rgba(0,100,255,.1)}
 .dsm-menu-icon{flex:none;display:inline-flex;align-items:center;justify-content:center}
 `;
 
