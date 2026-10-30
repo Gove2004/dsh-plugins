@@ -1,17 +1,17 @@
 /**
- * @local/dsh-session-manager —— 客户端半边
+ * @local/dsh-session-delete —— 客户端半边
  *
  * 在每个会话的「...」菜单中注入删除项。
  * 点击后弹出确认对话框，确认后调用 POST /api/session-manager/delete。
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/dsh-session-manager',
+  id: '@local/dsh-session-delete',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
 
-    const NS = 'sessionManager';
+    const NS = 'sessionDelete';
     const API = '/api/session-manager';
 
     /* ── 样式：使用 DSW token，对齐侧边栏菜单风格 ── */
@@ -28,8 +28,8 @@ window.__ModuleLoader__.load({
 .dsm-btn-del{background:var(--dsw-alias-state-error-primary);color:#fff}
 .dsm-btn-del:hover:not(:disabled){opacity:.88}
 .dsm-btn:disabled{opacity:.4;cursor:not-allowed}
-.dsm-menu-item{display:inline-flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;font-size:13px;font-family:inherit;color:var(--dsw-alias-state-error-primary);background:none;border:none;border-radius:6px;cursor:pointer;text-align:left;transition:background .12s}
-.dsm-menu-item:hover{background:rgba(220,50,50,.12)}
+.dsm-menu-item{display:inline-flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;font-size:13px;font-family:inherit;color:var(--dsw-alias-brand-primary);background:none;border:none;border-radius:6px;cursor:pointer;text-align:left;transition:background .12s}
+.dsm-menu-item:hover{background:rgba(0,100,255,.1)}
 .dsm-menu-icon{flex:none;display:inline-flex;align-items:center;justify-content:center}
 `;
 
@@ -103,7 +103,7 @@ window.__ModuleLoader__.load({
           deleting: '删除中…',
         };
         const en = {
-          delete: 'delete',
+          delete: 'Session Delete',
           confirmTitle: 'Delete Session',
           confirmDesc: 'This permanently deletes session',
           cancel: 'Cancel',
@@ -121,7 +121,7 @@ window.__ModuleLoader__.load({
         el.textContent = CSS;
         document.head.appendChild(el);
         return () => { try { el.remove(); } catch {} };
-      }, 'session-manager: styles');
+      }, 'session-delete: styles');
 
       // 在侧边栏会话列表的「...」菜单中注册删除项
       slots.inject('sidebar.workspaces.session.menu.item', () => slots.register({

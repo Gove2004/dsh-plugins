@@ -1,4 +1,4 @@
-// @local/dsh-session-manager —— 宿主半边
+// @local/dsh-session-delete —— 宿主半边
 //
 // 基于 dsh-archive-manager 的删除会话逻辑精简而来。
 // 只保留「删除已归档会话」的核心功能。
@@ -13,7 +13,7 @@
 import { rm } from 'node:fs/promises';
 import { dirname, parse, resolve } from 'node:path';
 
-export const name = 'session-manager';
+export const name = 'session-delete';
 export const inject = ['tools'];
 
 /* ───────────────────────── 配置 ───────────────────────── */
@@ -97,9 +97,9 @@ function mountWebUi(ctx, config, logger) {
         const body = await readBody(req);
         return deleteSession(ctx, body.sessionId);
       });
-      logger.info(`session-manager 路由已挂载：${prefix}/*`);
+      logger.info(`session-delete 路由已挂载：${prefix}/*`);
       return () => { for (const off of dispose) { try { off(); } catch {} } };
-    }, 'session-manager: http routes');
+    }, 'session-delete: http routes');
   });
 }
 
@@ -206,7 +206,7 @@ const actionOutput = textOutput(() => []);
 
 export async function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig);
-  const logger = typeof ctx.logger === 'function' ? ctx.logger('session-manager') : (ctx.logger ?? console);
+  const logger = typeof ctx.logger === 'function' ? ctx.logger('session-delete') : (ctx.logger ?? console);
 
   // 注册对话工具
   ctx.tools.register({
@@ -224,9 +224,9 @@ export async function apply(ctx, rawConfig) {
   });
 
   try { mountWebUi(ctx, config, logger); }
-  catch (error) { logger.warn(`session-manager 路由挂载失败：${error.message}`); }
+  catch (error) { logger.warn(`session-delete 路由挂载失败：${error.message}`); }
 
-  logger.info('session-manager 已加载');
+  logger.info('session-delete 已加载');
 }
 
 export default { name, inject, apply };
